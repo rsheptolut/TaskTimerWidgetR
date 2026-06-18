@@ -52,12 +52,15 @@
 - **Minimal Design**: Widget-sized window that doesn't take up much space
 - **Task Management**: Create, delete, and manage multiple tasks
 - **Built-in Timer**: Track elapsed time for each task
+- **Day Snapshots**: Navigate day-by-day history with a 4:00 AM local day boundary
 - **Manual Time Adjustment**: Right-click a task to add or subtract time (-1h, -5m, +5m, +1h)
+- **Done Workflow**: Mark tasks done, move them to the bottom, and keep historical continuity
 - **Active Task Highlighting**: Yellow highlight shows which task is currently active
 - **Pause & Resume**: Click to pause/resume timer on any task
 - **Inline Rename**: Right-click to rename tasks in-place
 - **Drag & Drop Reorder**: Drag tasks to change their order
 - **Compact Mode**: Show only the active task for minimal screen usage
+- **Right Edge Docking (AppBar)**: Reserves a right-side workspace strip so maximized windows stay clear of the widget
 - **Persistent Storage**: Tasks are saved locally
 - **Help & About**: Built-in tips and app information
 - **Lightweight**: Minimal resource usage
@@ -83,10 +86,12 @@
 4. **Pause Timer**: Click the active task again to pause the timer
 5. **Switch Tasks**: Click another task to pause the current one and activate the new one
 6. **Delete Task**: Click the `✕` button on a task to remove it
-7. **Rename Task**: Right-click a task and select "Rename"
-8. **Change Time**: Right-click a task and select "Change Time" to manually adjust elapsed time
-9. **Reorder Tasks**: Drag tasks up or down to change their order
-10. **Compact Mode**: Click the `◧` button in the title bar to show only the active task
+7. **Task Actions**: Use right-click or kebab menu (`⋮`) for Rename, Change Time, Mark done, and Delete actions
+8. **Navigate Days**: Use bottom arrows to browse previous days and return to today
+9. **Add to Today**: From historical days, use context menu action "Add to today"
+10. **Reorder Tasks**: Drag tasks up or down to change their order
+11. **Compact Mode**: Click the `◧` button in the title bar to show only the active task
+12. **Docking**: The widget automatically docks to the right edge and reserves that screen area
 
 ## 📁 Project Structure
 

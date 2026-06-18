@@ -99,3 +99,9 @@ src/TaskTimerWidget.Package/
 
 # Temporary files and test artifacts
 tmp/
+
+# Local self-contained publish output
+local-publish/
+
+# Local app state backups
+*.bak-*

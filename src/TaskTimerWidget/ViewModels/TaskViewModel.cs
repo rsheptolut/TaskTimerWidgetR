@@ -1,7 +1,4 @@
 using TaskTimerWidget.Models;
-using TaskTimerWidget.Services;
-using TaskTimerWidget.Helpers;
-using System.Windows.Input;
 
 namespace TaskTimerWidget.ViewModels
 {
@@ -10,14 +7,9 @@ namespace TaskTimerWidget.ViewModels
     /// </summary>
     public class TaskViewModel : ViewModelBase
     {
-        private readonly ITaskService _taskService;
         private TaskItem _model;
         private bool _isActive;
         private long _totalElapsedSeconds;
-
-        private ICommand? _startCommand;
-        private ICommand? _pauseCommand;
-        private ICommand? _deleteCommand;
 
         public object? Tag { get; set; }
 
@@ -32,7 +24,6 @@ namespace TaskTimerWidget.ViewModels
                 {
                     _model.Name = value;
                     OnPropertyChanged();
-                    _ = _taskService.UpdateTaskAsync(_model);
                 }
             }
         }
@@ -47,7 +38,6 @@ namespace TaskTimerWidget.ViewModels
                     _model.ElapsedSeconds = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(FormattedTime));
-                    _ = _taskService.UpdateTaskAsync(_model);
                 }
             }
         }
@@ -62,10 +52,25 @@ namespace TaskTimerWidget.ViewModels
                     _model.IsRunning = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(IsActive));
-                    _ = _taskService.UpdateTaskAsync(_model);
                 }
             }
         }
+
+        public bool IsDone
+        {
+            get => _model.IsDone;
+            set
+            {
+                if (_model.IsDone != value)
+                {
+                    _model.IsDone = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsDoneIndicator));
+                }
+            }
+        }
+
+        public string IsDoneIndicator => IsDone ? "✓" : string.Empty;
 
         public bool IsActive
         {
@@ -89,25 +94,9 @@ namespace TaskTimerWidget.ViewModels
 
         public DateTime CreatedAt => _model.CreatedAt;
 
-        public ICommand StartCommand =>
-            _startCommand ??= new RelayCommand(() => IsRunning = true);
-
-        public ICommand PauseCommand =>
-            _pauseCommand ??= new RelayCommand(() => IsRunning = false);
-
-        public ICommand DeleteCommand =>
-            _deleteCommand ??= new RelayCommand(async () =>
-            {
-                await _taskService.DeleteTaskAsync(Id);
-                OnTaskDeleted?.Invoke(this, Id);
-            });
-
-        public event EventHandler<Guid>? OnTaskDeleted;
-
-        public TaskViewModel(TaskItem model, ITaskService taskService)
+        public TaskViewModel(TaskItem model)
         {
             _model = model ?? throw new ArgumentNullException(nameof(model));
-            _taskService = taskService ?? throw new ArgumentNullException(nameof(taskService));
             _isActive = false;
         }
 

@@ -1,26 +1,31 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
+using TaskTimerWidget.Helpers;
 using TaskTimerWidget.Models;
 using TaskTimerWidget.Services;
-using TaskTimerWidget.Helpers;
 using Serilog;
 
 namespace TaskTimerWidget.ViewModels
 {
     /// <summary>
-    /// Main ViewModel managing application state and task operations.
-    /// Handles timer coordination and task management.
+    /// Main ViewModel managing day navigation and task operations.
     /// </summary>
     public class MainViewModel : ViewModelBase
     {
         private readonly ITaskService _taskService;
+        private DispatcherTimer? _timerUpdate;
         private TaskViewModel? _activeTask;
+        private TaskViewModel? _selectedTask;
         private bool _isLoading;
         private string? _errorMessage;
-        private DispatcherTimer? _timerUpdate;
-        private TaskViewModel? _selectedTask;
+        private string _selectedDayKey = string.Empty;
+        private string _knownTodayKey = string.Empty;
+        private string? _minDayKey;
+        private bool _isTodaySelected;
+        private string _selectedDayDisplay = string.Empty;
+        private bool _canNavigatePrevious;
+        private bool _canNavigateNext;
 
         private ICommand? _addTaskCommand;
         private ICommand? _selectTaskCommand;
@@ -51,8 +56,38 @@ namespace TaskTimerWidget.ViewModels
             set => SetProperty(ref _errorMessage, value);
         }
 
+        public string SelectedDayKey
+        {
+            get => _selectedDayKey;
+            private set => SetProperty(ref _selectedDayKey, value);
+        }
+
+        public bool IsTodaySelected
+        {
+            get => _isTodaySelected;
+            private set => SetProperty(ref _isTodaySelected, value);
+        }
+
+        public string SelectedDayDisplay
+        {
+            get => _selectedDayDisplay;
+            private set => SetProperty(ref _selectedDayDisplay, value);
+        }
+
+        public bool CanNavigatePrevious
+        {
+            get => _canNavigatePrevious;
+            private set => SetProperty(ref _canNavigatePrevious, value);
+        }
+
+        public bool CanNavigateNext
+        {
+            get => _canNavigateNext;
+            private set => SetProperty(ref _canNavigateNext, value);
+        }
+
         public ICommand AddTaskCommand =>
-            _addTaskCommand ??= new RelayCommand<string>(async (taskName) =>
+            _addTaskCommand ??= new RelayCommand<string>(async taskName =>
             {
                 if (!string.IsNullOrWhiteSpace(taskName))
                 {
@@ -61,7 +96,7 @@ namespace TaskTimerWidget.ViewModels
             });
 
         public ICommand SelectTaskCommand =>
-            _selectTaskCommand ??= new RelayCommand<TaskViewModel>(async (taskVm) =>
+            _selectTaskCommand ??= new RelayCommand<TaskViewModel>(async taskVm =>
             {
                 if (taskVm != null)
                 {
@@ -73,14 +108,9 @@ namespace TaskTimerWidget.ViewModels
         {
             _taskService = taskService ?? throw new ArgumentNullException(nameof(taskService));
             Tasks = new ObservableCollection<TaskViewModel>();
-
-            // Initialize timer for updating UI
             InitializeTimer();
         }
 
-        /// <summary>
-        /// Initializes the ViewModel and loads existing tasks.
-        /// </summary>
         public async Task InitializeAsync()
         {
             try
@@ -88,23 +118,8 @@ namespace TaskTimerWidget.ViewModels
                 IsLoading = true;
                 ErrorMessage = null;
 
-                // Load tasks from service
-                var tasks = await _taskService.GetAllTasksAsync();
-
-                // Sort by Order property (ascending), then by CreatedAt for ties
-                var sortedTasks = tasks.OrderBy(t => t.Order).ThenBy(t => t.CreatedAt);
-
-                foreach (var task in sortedTasks)
-                {
-                    var viewModel = new TaskViewModel(task, _taskService);
-                    viewModel.OnTaskDeleted += (sender, id) => OnTaskDeleted(id);
-                    Tasks.Add(viewModel);
-                }
-
-                // Initial percentage update
-                UpdateTaskPercentages();
-
-                Log.Information($"Loaded {Tasks.Count} tasks into UI");
+                _knownTodayKey = _taskService.GetTodayDayKey();
+                await LoadDayAsync(_knownTodayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
             }
             catch (Exception ex)
             {
@@ -117,28 +132,241 @@ namespace TaskTimerWidget.ViewModels
             }
         }
 
-        /// <summary>
-        /// Adds a new task with the given name.
-        /// </summary>
-        private async Task AddTaskAsync(string taskName)
+        public async Task NavigatePreviousDayAsync()
+        {
+            if (!CanNavigatePrevious)
+            {
+                return;
+            }
+
+            var targetDate = WorkdayClock.ParseDayKey(SelectedDayKey).AddDays(-1);
+            await NavigateToDayAsync(targetDate);
+        }
+
+        public async Task NavigateNextDayAsync()
+        {
+            if (!CanNavigateNext)
+            {
+                return;
+            }
+
+            var targetDate = WorkdayClock.ParseDayKey(SelectedDayKey).AddDays(1);
+            await NavigateToDayAsync(targetDate);
+        }
+
+        public Task GoToTodayAsync()
+        {
+            return NavigateToDayAsync(WorkdayClock.ParseDayKey(_taskService.GetTodayDayKey()));
+        }
+
+        public async Task ReloadCurrentDayAsync()
+        {
+            await LoadDayAsync(SelectedDayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
+        }
+
+        public async Task RenameTaskAsync(TaskViewModel taskVm, string newName)
+        {
+            if (taskVm == null || string.IsNullOrWhiteSpace(newName))
+            {
+                return;
+            }
+
+            await _taskService.RenameTaskAsync(taskVm.Id, newName.Trim());
+            await LoadDayAsync(SelectedDayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
+        }
+
+        public async Task<int> GetFutureUndoneDaysAsync(TaskViewModel taskVm)
+        {
+            return await _taskService.CountFutureUndoneDaysAsync(SelectedDayKey, taskVm.Id);
+        }
+
+        public async Task MarkTaskDoneAsync(TaskViewModel taskVm, bool markFutureToo)
+        {
+            if (taskVm == null)
+            {
+                return;
+            }
+
+            await _taskService.SetTaskDoneAsync(SelectedDayKey, taskVm.Id, true);
+            if (markFutureToo)
+            {
+                await _taskService.MarkFutureDaysDoneAsync(SelectedDayKey, taskVm.Id, deleteLowTimeEntries: true);
+            }
+
+            await LoadDayAsync(SelectedDayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
+        }
+
+        public async Task AddTaskToTodayAsync(TaskViewModel taskVm)
+        {
+            if (taskVm == null)
+            {
+                return;
+            }
+
+            var todayKey = _taskService.GetTodayDayKey();
+            await _taskService.AddOrReactivateTaskOnDayAsync(taskVm.Id, todayKey);
+
+            if (IsTodaySelected)
+            {
+                await LoadDayAsync(SelectedDayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
+            }
+            else
+            {
+                await RefreshNavigationAsync();
+            }
+        }
+
+        public Task<TaskStatistics?> GetTaskStatisticsAsync(TaskViewModel taskVm)
+        {
+            if (taskVm == null)
+            {
+                return Task.FromResult<TaskStatistics?>(null);
+            }
+
+            return _taskService.GetTaskStatisticsAsync(taskVm.Id);
+        }
+
+        public async Task DeleteTaskForCurrentDayAsync(TaskViewModel taskVm)
+        {
+            if (taskVm == null)
+            {
+                return;
+            }
+
+            if (ActiveTask?.Id == taskVm.Id)
+            {
+                ActiveTask = null;
+            }
+
+            await _taskService.DeleteTaskForDayAsync(SelectedDayKey, taskVm.Id);
+            await LoadDayAsync(SelectedDayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
+        }
+
+        public async Task DeleteTaskForeverAsync(TaskViewModel taskVm)
+        {
+            if (taskVm == null)
+            {
+                return;
+            }
+
+            if (ActiveTask?.Id == taskVm.Id)
+            {
+                ActiveTask = null;
+            }
+
+            await _taskService.DeleteTaskForeverAsync(taskVm.Id);
+            await LoadDayAsync(SelectedDayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
+        }
+
+        public async Task UpdateTaskOrdersAsync()
         {
             try
             {
-                var newTask = await _taskService.CreateTaskAsync(taskName);
+                var orderedIds = Tasks.Select(task => task.Id).ToList();
+                await _taskService.ReorderTasksAsync(SelectedDayKey, orderedIds);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error updating task orders");
+            }
+        }
 
-                // Set order to place at the end
-                newTask.Order = Tasks.Count;
-                await _taskService.UpdateTaskAsync(newTask);
+        public void SetTaskElapsedTime(TaskViewModel taskVm, long totalSeconds)
+        {
+            taskVm.ElapsedSeconds = Math.Max(0, totalSeconds);
+            _ = PersistTaskAsync(taskVm);
+            UpdateTaskPercentages();
+        }
 
-                var viewModel = new TaskViewModel(newTask, _taskService);
-                viewModel.OnTaskDeleted += (sender, id) => OnTaskDeleted(id);
-                Tasks.Add(viewModel);
+        private async Task NavigateToDayAsync(DateTime targetDate)
+        {
+            var todayDate = WorkdayClock.ParseDayKey(_taskService.GetTodayDayKey());
+            if (targetDate > todayDate)
+            {
+                targetDate = todayDate;
+            }
 
-                // Update percentages with new task
+            if (_minDayKey != null)
+            {
+                var minDate = WorkdayClock.ParseDayKey(_minDayKey);
+                if (targetDate < minDate)
+                {
+                    targetDate = minDate;
+                }
+            }
+
+            var dayKey = targetDate.ToString("yyyy-MM-dd");
+            await LoadDayAsync(dayKey, ensureDayExists: true, stopRunningBeforeLoad: true);
+        }
+
+        private async Task LoadDayAsync(string dayKey, bool ensureDayExists, bool stopRunningBeforeLoad)
+        {
+            if (string.IsNullOrWhiteSpace(dayKey))
+            {
+                return;
+            }
+
+            if (stopRunningBeforeLoad && !string.IsNullOrWhiteSpace(SelectedDayKey))
+            {
+                await StopRunningOnCurrentDayAsync();
+            }
+
+            var dayTasks = await _taskService.GetTasksForDayAsync(dayKey, ensureDayExists);
+
+            Tasks.Clear();
+            foreach (var task in dayTasks)
+            {
+                Tasks.Add(new TaskViewModel(task));
+            }
+
+            ActiveTask = null;
+            SelectedTask = null;
+            SelectedDayKey = dayKey;
+
+            UpdateTaskPercentages();
+            await RefreshNavigationAsync();
+            Log.Information("Loaded {TaskCount} tasks for day {DayKey}", Tasks.Count, dayKey);
+        }
+
+        private async Task RefreshNavigationAsync()
+        {
+            var dayKeys = await _taskService.GetDayKeysAsync();
+            _minDayKey = dayKeys.Count == 0 ? null : dayKeys[0];
+
+            var todayKey = _taskService.GetTodayDayKey();
+            _knownTodayKey = todayKey;
+            IsTodaySelected = SelectedDayKey == todayKey;
+
+            var displayDate = WorkdayClock.FormatDisplay(SelectedDayKey);
+            SelectedDayDisplay = IsTodaySelected ? $"Today · {displayDate}" : displayDate;
+
+            if (_minDayKey == null)
+            {
+                CanNavigatePrevious = false;
+            }
+            else
+            {
+                CanNavigatePrevious = WorkdayClock.ParseDayKey(SelectedDayKey) > WorkdayClock.ParseDayKey(_minDayKey);
+            }
+
+            CanNavigateNext = WorkdayClock.ParseDayKey(SelectedDayKey) < WorkdayClock.ParseDayKey(todayKey);
+        }
+
+        private async Task AddTaskAsync(string taskName)
+        {
+            if (!IsTodaySelected)
+            {
+                ErrorMessage = "Tasks can only be created on today.";
+                return;
+            }
+
+            try
+            {
+                var newTask = await _taskService.CreateTaskAsync(SelectedDayKey, taskName);
+                Tasks.Add(new TaskViewModel(newTask));
                 UpdateTaskPercentages();
-
-                // Don't auto-select new task, let user click it
-                Log.Information($"Task added: {newTask.Name}");
+                ErrorMessage = null;
+                Log.Information("Task added: {TaskName}", newTask.Name);
             }
             catch (Exception ex)
             {
@@ -147,158 +375,134 @@ namespace TaskTimerWidget.ViewModels
             }
         }
 
-        /// <summary>
-        /// Selects a task and starts/pauses its timer appropriately.
-        /// </summary>
-        private Task SelectTaskAsync(TaskViewModel taskVm)
+        private async Task SelectTaskAsync(TaskViewModel taskVm)
         {
+            if (!IsTodaySelected)
+            {
+                return;
+            }
+
             try
             {
-                // If same task is clicked, toggle its active state (pause/resume)
+                if (taskVm.IsDone)
+                {
+                    return;
+                }
+
                 if (ActiveTask == taskVm)
                 {
-                    if (taskVm.IsRunning)
-                    {
-                        // Pause the task
-                        taskVm.IsRunning = false;
-                        taskVm.IsActive = false;
-                    }
-                    else
-                    {
-                        // Resume the task
-                        taskVm.IsRunning = true;
-                        taskVm.IsActive = true;
-                    }
+                    taskVm.IsRunning = !taskVm.IsRunning;
+                    taskVm.IsActive = taskVm.IsRunning;
+                    await PersistTaskAsync(taskVm);
+                    return;
                 }
-                else
+
+                if (ActiveTask != null)
                 {
-                    // Different task is clicked
-                    // Pause previous active task
-                    if (ActiveTask != null)
-                    {
-                        ActiveTask.IsRunning = false;
-                        ActiveTask.IsActive = false;
-                    }
-
-                    // Set new active task
-                    SelectedTask = taskVm;
-                    ActiveTask = taskVm;
-                    ActiveTask.IsActive = true;
-                    ActiveTask.IsRunning = true;
+                    ActiveTask.IsRunning = false;
+                    ActiveTask.IsActive = false;
+                    await PersistTaskAsync(ActiveTask);
                 }
 
-                Log.Debug($"Task selected: {taskVm.Name}");
-                return Task.CompletedTask;
+                SelectedTask = taskVm;
+                ActiveTask = taskVm;
+                ActiveTask.IsActive = true;
+                ActiveTask.IsRunning = true;
+                await PersistTaskAsync(ActiveTask);
             }
             catch (Exception ex)
             {
                 ErrorMessage = "Failed to select task";
                 Log.Error(ex, "Error selecting task");
-                return Task.CompletedTask;
             }
         }
 
-        /// <summary>
-        /// Removes a task from the collection when it's deleted.
-        /// </summary>
-        private void OnTaskDeleted(Guid taskId)
-        {
-            var taskVm = Tasks.FirstOrDefault(t => t.Id == taskId);
-            if (taskVm != null)
-            {
-                Tasks.Remove(taskVm);
-                if (ActiveTask?.Id == taskId)
-                {
-                    ActiveTask = null;
-                }
-                Log.Information($"Task removed from UI: {taskId}");
-            }
-        }
-
-        /// <summary>
-        /// Initializes the UI update timer (1 second interval).
-        /// </summary>
         private void InitializeTimer()
         {
-            _timerUpdate = new DispatcherTimer();
-            _timerUpdate.Interval = TimeSpan.FromSeconds(1);
-            _timerUpdate.Tick += (sender, e) => UpdateActiveTaskTimer();
+            _timerUpdate = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _timerUpdate.Tick += async (_, _) => await OnTimerTickAsync();
             _timerUpdate.Start();
         }
 
-        /// <summary>
-        /// Updates the active task's elapsed time display and recalculates percentages.
-        /// </summary>
-        private void UpdateActiveTaskTimer()
+        private async Task OnTimerTickAsync()
         {
-            if (ActiveTask?.IsRunning == true)
-            {
-                var currentElapsed = ActiveTask.ElapsedSeconds + 1;
-                ActiveTask.UpdateElapsedDisplay(currentElapsed);
+            await HandleWorkdayRolloverAsync();
 
-                // Save the updated model to storage
-                _ = _taskService.UpdateTaskAsync(ActiveTask.GetModel());
+            if (!IsTodaySelected)
+            {
+                return;
             }
 
-            // Recalculate and update percentages for all tasks
+            if (ActiveTask?.IsRunning == true)
+            {
+                ActiveTask.UpdateElapsedDisplay(ActiveTask.ElapsedSeconds + 1);
+                await PersistTaskAsync(ActiveTask);
+            }
+
             UpdateTaskPercentages();
         }
 
-        /// <summary>
-        /// Calculates total elapsed time and updates percentage for each task.
-        /// </summary>
+        private async Task HandleWorkdayRolloverAsync()
+        {
+            var newTodayKey = _taskService.GetTodayDayKey();
+            if (string.IsNullOrEmpty(_knownTodayKey))
+            {
+                _knownTodayKey = newTodayKey;
+                return;
+            }
+
+            if (newTodayKey == _knownTodayKey)
+            {
+                return;
+            }
+
+            var previousToday = _knownTodayKey;
+            _knownTodayKey = newTodayKey;
+
+            if (SelectedDayKey == previousToday)
+            {
+                await StopRunningOnCurrentDayAsync();
+                await LoadDayAsync(newTodayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
+            }
+            else
+            {
+                await RefreshNavigationAsync();
+            }
+        }
+
+        private async Task StopRunningOnCurrentDayAsync()
+        {
+            if (string.IsNullOrWhiteSpace(SelectedDayKey))
+            {
+                return;
+            }
+
+            await _taskService.StopRunningTasksAsync(SelectedDayKey);
+            if (ActiveTask != null)
+            {
+                ActiveTask.IsRunning = false;
+                ActiveTask.IsActive = false;
+                ActiveTask = null;
+            }
+        }
+
+        private async Task PersistTaskAsync(TaskViewModel taskVm)
+        {
+            await _taskService.UpdateTaskAsync(SelectedDayKey, taskVm.GetModel());
+        }
+
         private void UpdateTaskPercentages()
         {
-            long totalElapsedSeconds = Tasks.Sum(t => t.ElapsedSeconds);
-
+            var totalElapsedSeconds = Tasks.Sum(task => task.ElapsedSeconds);
             foreach (var task in Tasks)
             {
                 task.SetTotalElapsedSeconds(totalElapsedSeconds);
             }
         }
 
-        /// <summary>
-        /// Sets a task's elapsed time to an absolute value and updates percentages.
-        /// Used by the Change Time flyout for manual time adjustment.
-        /// </summary>
-        public void SetTaskElapsedTime(TaskViewModel taskVm, long totalSeconds)
-        {
-            taskVm.ElapsedSeconds = Math.Max(0, totalSeconds);
-            UpdateTaskPercentages();
-        }
-
-        /// <summary>
-        /// Updates the order of all tasks in the database based on their current position in the collection.
-        /// Called after drag-and-drop reordering.
-        /// </summary>
-        public async Task UpdateTaskOrdersAsync()
-        {
-            try
-            {
-                for (int i = 0; i < Tasks.Count; i++)
-                {
-                    var task = Tasks[i];
-                    var model = task.GetModel();
-
-                    // Update order property
-                    model.Order = i;
-                    model.ModifiedAt = DateTime.UtcNow;
-
-                    // Save to database
-                    await _taskService.UpdateTaskAsync(model);
-                }
-
-                Log.Information("Task orders updated successfully");
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error updating task orders");
-            }
-        }
-
-        /// <summary>
-        /// Cleanup method for disposal.
-        /// </summary>
         public void Dispose()
         {
             _timerUpdate?.Stop();

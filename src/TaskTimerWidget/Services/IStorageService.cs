@@ -8,18 +8,13 @@ namespace TaskTimerWidget.Services
     public interface IStorageService
     {
         /// <summary>
-        /// Loads all tasks from storage.
+        /// Loads all day snapshots from storage.
         /// </summary>
-        System.Threading.Tasks.Task<IEnumerable<TaskItem>> LoadTasksAsync();
+        System.Threading.Tasks.Task<TaskStoreData> LoadStoreAsync();
 
         /// <summary>
-        /// Saves all tasks to storage.
+        /// Saves the full day snapshot store.
         /// </summary>
-        System.Threading.Tasks.Task SaveTasksAsync(IEnumerable<TaskItem> tasks);
-
-        /// <summary>
-        /// Clears all tasks from storage.
-        /// </summary>
-        System.Threading.Tasks.Task ClearAsync();
+        System.Threading.Tasks.Task SaveStoreAsync(TaskStoreData storeData);
     }
 }

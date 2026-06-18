@@ -32,6 +32,12 @@ namespace TaskTimerWidget.Models
         public bool IsRunning { get; set; }
 
         /// <summary>
+        /// Indicates whether this task is marked done for the day.
+        /// </summary>
+        [JsonProperty("isDone")]
+        public bool IsDone { get; set; }
+
+        /// <summary>
         /// Task creation timestamp.
         /// </summary>
         [JsonProperty("createdAt")]
@@ -75,7 +81,26 @@ namespace TaskTimerWidget.Models
         {
             ElapsedSeconds = 0;
             IsRunning = false;
+            IsDone = false;
             ModifiedAt = DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Creates a copy for another day while preserving the same task identity.
+        /// </summary>
+        public TaskItem CloneForDayReset()
+        {
+            return new TaskItem
+            {
+                Id = Id,
+                Name = Name,
+                ElapsedSeconds = 0,
+                IsRunning = false,
+                IsDone = false,
+                CreatedAt = CreatedAt,
+                ModifiedAt = DateTime.UtcNow,
+                Order = Order
+            };
         }
 
         /// <summary>

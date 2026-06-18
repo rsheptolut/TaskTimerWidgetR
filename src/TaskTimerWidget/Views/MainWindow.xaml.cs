@@ -5,6 +5,7 @@ using Microsoft.UI.Windowing;
 using Windows.Graphics;
 using Windows.UI;
 using TaskTimerWidget.ViewModels;
+using TaskTimerWidget.Helpers;
 using Serilog;
 using System.Linq;
 using Microsoft.UI.Xaml.Media;
@@ -26,7 +27,12 @@ namespace TaskTimerWidget
         private bool _isCompactMode = false;
         private bool _isMouseOver = false;
         private bool _isWindowActive = false;
+        private bool _isClosing = false;
         private bool _isTitleBarTransitioning = false;
+        private AppBarDockManager? _appBarDockManager;
+        private bool _fillDockHeight = true;
+        private DispatcherTimer? _dockWatchTimer;
+        private const int WIDGET_WIDTH = 220;
         private const int NORMAL_HEIGHT = 500;
         private const int TITLEBAR_HEIGHT = 32;
 
@@ -49,15 +55,21 @@ namespace TaskTimerWidget
                 if (_appWindow != null)
                 {
                     // Set window size for widget appearance
-                    _appWindow.Resize(new SizeInt32(220, 500));
-                    Log.Information("MainWindow resized to 220x500");
+                    ResizeWidgetWindow(WIDGET_WIDTH, NORMAL_HEIGHT);
+                    Log.Information("MainWindow resized to {Width}x{Height}", WIDGET_WIDTH, NORMAL_HEIGHT);
 
                     // Set window to always-on-top (widget behavior)
                     var presenter = _appWindow.Presenter as Microsoft.UI.Windowing.OverlappedPresenter;
                     if (presenter != null)
                     {
                         presenter.IsAlwaysOnTop = true;
-                        Log.Information("Window set to always-on-top");
+                        // Remove the system border AND the standard title bar so only the
+                        // custom widget title bar shows and the panel sits flush to the edge.
+                        presenter.SetBorderAndTitleBar(false, false);
+                        presenter.IsResizable = false;
+                        presenter.IsMaximizable = false;
+                        presenter.IsMinimizable = false;
+                        Log.Information("Window set to always-on-top, borderless");
                     }
 
                     // Set window icon for taskbar
@@ -105,6 +117,7 @@ namespace TaskTimerWidget
                     {
                         Log.Warning(ex, "Could not set custom title bar");
                     }
+
                 }
                 else
                 {
@@ -134,6 +147,20 @@ namespace TaskTimerWidget
             try
             {
                 _isWindowActive = args.WindowActivationState != WindowActivationState.Deactivated;
+
+                if (_isWindowActive)
+                {
+                    if (_appBarDockManager == null)
+                    {
+                        InitializeDocking();
+                    }
+                    else
+                    {
+                        // Re-assert the dock if it drifted (e.g. after resume from sleep).
+                        _appBarDockManager.EnsureDocked();
+                    }
+                }
+
                 UpdateTitleBarVisibility();
             }
             catch (Exception ex)
@@ -169,6 +196,11 @@ namespace TaskTimerWidget
         {
             try
             {
+                if (_isClosing || this.Content is null)
+                {
+                    return;
+                }
+
                 if (_isCompactMode)
                 {
                     // Prevent concurrent transitions that could cause size calculation errors
@@ -196,7 +228,7 @@ namespace TaskTimerWidget
                         if (_appWindow != null)
                         {
                             var currentSize = _appWindow.Size;
-                            _appWindow.Resize(new SizeInt32(currentSize.Width, currentSize.Height + TITLEBAR_HEIGHT));
+                            ResizeWidgetWindow(currentSize.Width, currentSize.Height + TITLEBAR_HEIGHT);
                         }
 
                         // Small delay to complete transition
@@ -223,7 +255,7 @@ namespace TaskTimerWidget
                         if (_appWindow != null)
                         {
                             var currentSize = _appWindow.Size;
-                            _appWindow.Resize(new SizeInt32(currentSize.Width, currentSize.Height - TITLEBAR_HEIGHT));
+                            ResizeWidgetWindow(currentSize.Width, currentSize.Height - TITLEBAR_HEIGHT);
                         }
 
                         // Then: Hide TitleBar (GONE - no space taken)
@@ -304,6 +336,8 @@ namespace TaskTimerWidget
                     // Update UI
                     UpdateEmptyState();
                     UpdateStatusBar();
+                    UpdateDayNavigationUi();
+                    UpdateTaskItemColors();
 
                     // Subscribe to property changes
                     _viewModel.PropertyChanged += (sender, args) =>
@@ -314,6 +348,14 @@ namespace TaskTimerWidget
                             UpdateEmptyState();
                             UpdateStatusBar();
                         }
+
+                        if (args.PropertyName == nameof(_viewModel.SelectedDayDisplay) ||
+                            args.PropertyName == nameof(_viewModel.CanNavigatePrevious) ||
+                            args.PropertyName == nameof(_viewModel.CanNavigateNext) ||
+                            args.PropertyName == nameof(_viewModel.IsTodaySelected))
+                        {
+                            UpdateDayNavigationUi();
+                        }
                     };
 
                     // Subscribe to collection changes (for ObservableCollection Items)
@@ -321,6 +363,7 @@ namespace TaskTimerWidget
                     {
                         UpdateEmptyState();
                         UpdateStatusBar();
+                        UpdateTaskItemColors();
                     };
                 }
             }
@@ -524,6 +567,8 @@ namespace TaskTimerWidget
 
             if (_isCompactMode)
             {
+                // Compact mode uses a content-sized height, not the full docked height.
+                _fillDockHeight = false;
                 // Initial TitleBar state (will be controlled by UpdateTitleBarVisibility)
                 // Start with it hidden (GONE)
                 UpdateTitleBarVisibility();
@@ -602,7 +647,7 @@ namespace TaskTimerWidget
                     $"TaskMargin: {taskMargin}, Calculated: {compactHeight}");
 
                 // Switch to compact mode with calculated height
-                _appWindow?.Resize(new SizeInt32(220, compactHeight));
+                ResizeWidgetWindow(WIDGET_WIDTH, compactHeight);
 
                 CompactModeButton.Content = "◱";
                 Log.Information($"Switched to compact mode (height: {compactHeight}px)");
@@ -610,6 +655,7 @@ namespace TaskTimerWidget
             else
             {
                 // Restore normal mode
+                _fillDockHeight = true;
                 // Restore TitleBar (will be controlled by UpdateTitleBarVisibility)
                 UpdateTitleBarVisibility();
 
@@ -620,7 +666,7 @@ namespace TaskTimerWidget
                 }
 
                 // Switch back to normal mode
-                _appWindow?.Resize(new SizeInt32(220, NORMAL_HEIGHT));
+                ResizeWidgetWindow(WIDGET_WIDTH, NORMAL_HEIGHT);
 
                 // Restore normal padding and alignment
                 if (TaskScrollView != null)
@@ -739,6 +785,11 @@ namespace TaskTimerWidget
             {
                 if (_viewModel != null)
                 {
+                    if (!_viewModel.IsTodaySelected || taskVm.IsDone)
+                    {
+                        return;
+                    }
+
                     _viewModel.SelectTaskCommand.Execute(taskVm);
 
                     // Update background colors for all task items
@@ -773,9 +824,33 @@ namespace TaskTimerWidget
                     var visual = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(container, 0) as Border;
                     if (visual?.Tag is TaskViewModel taskVm)
                     {
-                        // Active (running) = Gold, Inactive (paused) = Dark Gray (#2A2A2A)
-                        var color = taskVm.IsActive ? Microsoft.UI.Colors.Gold : new Color { A = 255, R = 0x2A, G = 0x2A, B = 0x2A };
+                        Color color;
+                        if (taskVm.IsDone)
+                        {
+                            color = new Color { A = 255, R = 0x1E, G = 0x3A, B = 0x1E };
+                        }
+                        else
+                        {
+                            // Active (running) = Gold, Inactive (paused) = Dark Gray (#2A2A2A)
+                            color = taskVm.IsActive ? Microsoft.UI.Colors.Gold : new Color { A = 255, R = 0x2A, G = 0x2A, B = 0x2A };
+                        }
+
                         visual.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
+
+                        var nameTextBlock = visual.FindName("TaskNameTextBlock") as TextBlock;
+                        if (nameTextBlock != null)
+                        {
+                            nameTextBlock.Text = taskVm.IsDone
+                                ? ApplyStrikeOverlay(taskVm.Name)
+                                : taskVm.Name;
+                            nameTextBlock.Opacity = taskVm.IsDone ? 0.7 : 1.0;
+                        }
+
+                        var doneIndicatorTextBlock = visual.FindName("DoneIndicatorTextBlock") as TextBlock;
+                        if (doneIndicatorTextBlock != null)
+                        {
+                            doneIndicatorTextBlock.Visibility = taskVm.IsDone ? Visibility.Visible : Visibility.Collapsed;
+                        }
                     }
                 }
             }
@@ -788,6 +863,12 @@ namespace TaskTimerWidget
         {
             if (sender is Border border && border.Tag is TaskViewModel taskVm)
             {
+                if (taskVm.IsDone)
+                {
+                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(new Color { A = 255, R = 0x2A, G = 0x4A, B = 0x2A });
+                    return;
+                }
+
                 // Hover: Lighter tone (active=lighter gold, inactive=lighter gray)
                 Color hoverColor;
                 if (taskVm.IsActive)
@@ -811,8 +892,16 @@ namespace TaskTimerWidget
         {
             if (sender is Border border && border.Tag is TaskViewModel taskVm)
             {
-                // Restore: Active = Gold, Inactive = Dark Gray (#2A2A2A)
-                var color = taskVm.IsActive ? Microsoft.UI.Colors.Gold : new Color { A = 255, R = 0x2A, G = 0x2A, B = 0x2A };
+                // Restore: Done = dark green, Active = gold, Inactive = dark gray.
+                Color color;
+                if (taskVm.IsDone)
+                {
+                    color = new Color { A = 255, R = 0x1E, G = 0x3A, B = 0x1E };
+                }
+                else
+                {
+                    color = taskVm.IsActive ? Microsoft.UI.Colors.Gold : new Color { A = 255, R = 0x2A, G = 0x2A, B = 0x2A };
+                }
                 border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
             }
         }
@@ -846,11 +935,91 @@ namespace TaskTimerWidget
                 else
                 {
                     var count = _viewModel.Tasks.Count;
-                    StatusBar.Text = $"{count} task{(count != 1 ? "s" : "")}";
+                    var daySuffix = _viewModel.IsTodaySelected ? string.Empty : " (history)";
+                    StatusBar.Text = $"{count} task{(count != 1 ? "s" : "")}{daySuffix}";
                     StatusBar.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
                         Microsoft.UI.Colors.Gray);
                 }
             }
+        }
+
+        private void UpdateDayNavigationUi()
+        {
+            if (_viewModel == null)
+            {
+                return;
+            }
+
+            if (DayDisplayTextBlock != null)
+            {
+                DayDisplayTextBlock.Text = _viewModel.SelectedDayDisplay;
+            }
+
+            if (PreviousDayButton != null)
+            {
+                PreviousDayButton.IsEnabled = _viewModel.CanNavigatePrevious;
+                PreviousDayButton.Opacity = _viewModel.CanNavigatePrevious ? 1.0 : 0.4;
+            }
+
+            if (NextDayButton != null)
+            {
+                NextDayButton.IsEnabled = _viewModel.CanNavigateNext;
+                NextDayButton.Opacity = _viewModel.CanNavigateNext ? 1.0 : 0.4;
+            }
+
+            if (AddTaskButton != null)
+            {
+                AddTaskButton.IsEnabled = _viewModel.IsTodaySelected;
+                AddTaskButton.Opacity = _viewModel.IsTodaySelected ? 1.0 : 0.5;
+            }
+        }
+
+        private static string FormatDuration(long totalSeconds)
+        {
+            var timeSpan = TimeSpan.FromSeconds(Math.Max(0, totalSeconds));
+            if (timeSpan.TotalHours >= 1)
+            {
+                return $"{(int)timeSpan.TotalHours}h {timeSpan.Minutes}m {timeSpan.Seconds}s";
+            }
+            if (timeSpan.TotalMinutes >= 1)
+            {
+                return $"{timeSpan.Minutes}m {timeSpan.Seconds}s";
+            }
+            return $"{timeSpan.Seconds}s";
+        }
+
+        private static string ApplyStrikeOverlay(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return text;
+            }
+
+            return string.Concat(text.Select(character => $"{character}\u0336"));
+        }
+
+        private async void PreviousDayButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel == null)
+            {
+                return;
+            }
+
+            await _viewModel.NavigatePreviousDayAsync();
+            UpdateTaskItemColors();
+            UpdateStatusBar();
+        }
+
+        private async void NextDayButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel == null)
+            {
+                return;
+            }
+
+            await _viewModel.NavigateNextDayAsync();
+            UpdateTaskItemColors();
+            UpdateStatusBar();
         }
 
         /// <summary>
@@ -864,49 +1033,191 @@ namespace TaskTimerWidget
         }
 
         /// <summary>
-        /// Handles right-click on task item to show rename option.
+        /// Handles right-click on task item to show task actions.
         /// </summary>
         private void TaskItem_RightTapped(object sender, Microsoft.UI.Xaml.Input.RightTappedRoutedEventArgs e)
         {
             if (sender is Border border && border.Tag is TaskViewModel taskVm)
             {
                 e.Handled = true;
-
-                // Create and show flyout menu
-                var flyout = new MenuFlyout();
-
-                // Rename menu item
-                var renameItem = new MenuFlyoutItem
-                {
-                    Text = "Rename",
-                    Icon = new SymbolIcon { Symbol = Symbol.Rename }
-                };
-
-                renameItem.Click += (s, args) =>
-                {
-                    // Show rename input using the new task card
-                    ShowRenameInput(taskVm);
-                };
-
-                flyout.Items.Add(renameItem);
-
-                // Change Time menu item
-                var changeTimeItem = new MenuFlyoutItem
-                {
-                    Text = "Change Time",
-                    Icon = new SymbolIcon { Symbol = Symbol.Clock }
-                };
-
-                changeTimeItem.Click += (s, args) =>
-                {
-                    ShowChangeTimeInput(taskVm);
-                };
-
-                flyout.Items.Add(changeTimeItem);
-
-                // Show at pointer position
-                flyout.ShowAt(border, e.GetPosition(border));
+                ShowTaskContextMenu(taskVm, border, e.GetPosition(border));
             }
+        }
+
+        private void TaskMenuButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button button && button.Tag is TaskViewModel taskVm)
+            {
+                ShowTaskContextMenu(taskVm, button, new Windows.Foundation.Point(button.ActualWidth / 2, button.ActualHeight));
+            }
+        }
+
+        private void ShowTaskContextMenu(TaskViewModel taskVm, FrameworkElement target, Windows.Foundation.Point position)
+        {
+            if (_viewModel == null)
+            {
+                return;
+            }
+
+            var flyout = new MenuFlyout();
+
+            var renameItem = new MenuFlyoutItem
+            {
+                Text = "Rename",
+                Icon = new SymbolIcon { Symbol = Symbol.Rename }
+            };
+            renameItem.Click += (s, args) => ShowRenameInput(taskVm);
+            flyout.Items.Add(renameItem);
+
+            var changeTimeItem = new MenuFlyoutItem
+            {
+                Text = "Change Time",
+                Icon = new SymbolIcon { Symbol = Symbol.Clock }
+            };
+            changeTimeItem.Click += (s, args) => ShowChangeTimeInput(taskVm);
+            flyout.Items.Add(changeTimeItem);
+
+            if (!_viewModel.IsTodaySelected)
+            {
+                var addToTodayItem = new MenuFlyoutItem
+                {
+                    Text = "Add to today",
+                    Icon = new SymbolIcon { Symbol = Symbol.Add }
+                };
+                addToTodayItem.Click += async (s, args) =>
+                {
+                    await _viewModel.AddTaskToTodayAsync(taskVm);
+                    UpdateStatusBar();
+                };
+                flyout.Items.Add(addToTodayItem);
+            }
+
+            var markDoneItem = new MenuFlyoutItem
+            {
+                Text = "Mark done",
+                Icon = new SymbolIcon { Symbol = Symbol.Accept },
+                IsEnabled = !taskVm.IsDone
+            };
+            markDoneItem.Click += async (s, args) =>
+            {
+                if (_viewModel == null || taskVm.IsDone)
+                {
+                    return;
+                }
+
+                var futureCount = await _viewModel.GetFutureUndoneDaysAsync(taskVm);
+                var markFutureToo = false;
+
+                if (futureCount > 0)
+                {
+                    var continuityDialog = new ContentDialog
+                    {
+                        Title = "Continuity check",
+                        Content = $"There's {futureCount} more day(s) in the future where this task is used but not marked done.",
+                        PrimaryButtonText = "Mark them all done",
+                        SecondaryButtonText = "Leave them as is",
+                        CloseButtonText = "Cancel",
+                        XamlRoot = this.Content.XamlRoot
+                    };
+
+                    var continuityResult = await continuityDialog.ShowAsync();
+                    if (continuityResult == ContentDialogResult.None)
+                    {
+                        return;
+                    }
+
+                    markFutureToo = continuityResult == ContentDialogResult.Primary;
+                }
+
+                await _viewModel.MarkTaskDoneAsync(taskVm, markFutureToo);
+                UpdateTaskItemColors();
+                UpdateStatusBar();
+            };
+            flyout.Items.Add(markDoneItem);
+
+            var infoItem = new MenuFlyoutItem
+            {
+                Text = "View more info",
+                Icon = new SymbolIcon { Symbol = Symbol.Help }
+            };
+            infoItem.Click += async (s, args) =>
+            {
+                if (_viewModel == null)
+                {
+                    return;
+                }
+
+                var stats = await _viewModel.GetTaskStatisticsAsync(taskVm);
+                if (stats == null)
+                {
+                    return;
+                }
+
+                var begin = stats.FirstSeenLocalDate?.ToString("yyyy-MM-dd") ?? "N/A";
+                var end = stats.LastSeenLocalDate?.ToString("yyyy-MM-dd") ?? "N/A";
+                var totalTime = FormatDuration(stats.TotalElapsedSeconds);
+                var details =
+                    $"Task ID: {stats.TaskId}\n" +
+                    $"Total time: {totalTime}\n" +
+                    $"Task began: {begin}\n" +
+                    $"Task ended: {end}\n" +
+                    $"Total days (>1 min): {stats.TotalActiveDays}";
+
+                // Shown in a standalone, centered window so the content isn't clipped
+                // by the narrow docked widget (a ContentDialog is bound to this window's size).
+                var infoWindow = new Views.TaskInfoWindow(stats.Name, details);
+                infoWindow.Activate();
+            };
+            flyout.Items.Add(infoItem);
+
+            var deleteItem = new MenuFlyoutItem
+            {
+                Text = "Delete",
+                Icon = new SymbolIcon { Symbol = Symbol.Delete }
+            };
+            deleteItem.Click += async (s, args) =>
+            {
+                if (_viewModel == null)
+                {
+                    return;
+                }
+
+                var stats = await _viewModel.GetTaskStatisticsAsync(taskVm);
+                if (stats == null)
+                {
+                    return;
+                }
+
+                var totalDays = stats.TotalUsedDays;
+                var needsWarning = stats.TotalElapsedSeconds > 60;
+                var warningPrefix = needsWarning ? $"Are you sure? There's {totalDays} day(s) using this task.\n\n" : string.Empty;
+
+                var deleteDialog = new ContentDialog
+                {
+                    Title = "Delete task",
+                    Content = warningPrefix + "Choose delete scope.",
+                    PrimaryButtonText = "Delete this whole task forever",
+                    SecondaryButtonText = "Delete just for this day",
+                    CloseButtonText = "Cancel",
+                    XamlRoot = this.Content.XamlRoot
+                };
+
+                var result = await deleteDialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    await _viewModel.DeleteTaskForeverAsync(taskVm);
+                }
+                else if (result == ContentDialogResult.Secondary)
+                {
+                    await _viewModel.DeleteTaskForCurrentDayAsync(taskVm);
+                }
+
+                UpdateTaskItemColors();
+                UpdateStatusBar();
+            };
+            flyout.Items.Add(deleteItem);
+
+            flyout.ShowAt(target, position);
         }
 
         /// <summary>
@@ -946,13 +1257,15 @@ namespace TaskTimerWidget
 
             // Set name color based on active state
             ChangeTimeTaskName.Foreground = new SolidColorBrush(
-                taskVm.IsActive ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White);
+                taskVm.IsActive && !taskVm.IsDone ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White);
             ChangeTimeDisplay.Foreground = new SolidColorBrush(
-                taskVm.IsActive ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White);
+                taskVm.IsActive && !taskVm.IsDone ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White);
 
             // Set card background based on active state (same as task card)
             ChangeTimeBorder.Background = new SolidColorBrush(
-                taskVm.IsActive ? Microsoft.UI.Colors.Gold : new Color { A = 255, R = 0x2A, G = 0x2A, B = 0x2A });
+                taskVm.IsDone
+                    ? new Color { A = 255, R = 0x1E, G = 0x3A, B = 0x1E }
+                    : (taskVm.IsActive ? Microsoft.UI.Colors.Gold : new Color { A = 255, R = 0x2A, G = 0x2A, B = 0x2A }));
 
             // Build adjustment buttons
             BuildChangeTimeButtons(taskVm);
@@ -1223,41 +1536,13 @@ namespace TaskTimerWidget
                 // Check if we're renaming an existing task
                 if (NewTaskTextBox.Tag is TaskViewModel existingTask)
                 {
-                    // Save the active state before rename
-                    bool wasActive = existingTask.IsActive;
+                    await _viewModel.RenameTaskAsync(existingTask, taskName);
 
-                    existingTask.Name = taskName;
-
-                    // Restore the edited task to its original position
-                    if (_editingTaskIndex >= 0 && _editingTask != null)
-                    {
-                        _viewModel.Tasks.Insert(_editingTaskIndex, _editingTask);
-                        _editingTask = null;
-                        _editingTaskIndex = -1;
-                    }
-
+                    _editingTask = null;
+                    _editingTaskIndex = -1;
                     NewTaskTextBox.Tag = null;
                     HideEditCard();
-
-                    // Restore the active state color after UI updates
-                    if (wasActive)
-                    {
-                        await System.Threading.Tasks.Task.Delay(50);
-
-                        // Find and update the task's background color
-                        for (int i = 0; i < TasksItemsControl.Items.Count; i++)
-                        {
-                            if (TasksItemsControl.ItemContainerGenerator.ContainerFromIndex(i) is FrameworkElement container)
-                            {
-                                var border = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(container, 0) as Border;
-                                if (border?.Tag == existingTask)
-                                {
-                                    border.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gold);
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                    UpdateTaskItemColors();
                 }
                 else
                 {
@@ -1534,8 +1819,66 @@ namespace TaskTimerWidget
         /// </summary>
         private void Window_Closed(object sender, WindowEventArgs args)
         {
+            _isClosing = true;
+            _dockWatchTimer?.Stop();
+            _dockWatchTimer = null;
+            _appBarDockManager?.Dispose();
             _viewModel?.Dispose();
             Log.Information("MainWindow closing");
+        }
+
+        private void InitializeDocking()
+        {
+            try
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                if (hwnd == IntPtr.Zero)
+                {
+                    Log.Warning("Could not get window handle for appbar docking");
+                    return;
+                }
+
+                _appBarDockManager = new AppBarDockManager(hwnd, WIDGET_WIDTH);
+                _appBarDockManager.RegisterRightDock();
+                _appBarDockManager.UpdatePosition(_appWindow?.Size.Height ?? NORMAL_HEIGHT, _fillDockHeight);
+                StartDockWatchTimer();
+                Log.Information("AppBar right docking enabled");
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "AppBar docking initialization failed");
+            }
+        }
+
+        private void StartDockWatchTimer()
+        {
+            if (_dockWatchTimer != null)
+            {
+                return;
+            }
+
+            _dockWatchTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(3)
+            };
+            _dockWatchTimer.Tick += (s, e) =>
+            {
+                if (_isClosing)
+                {
+                    return;
+                }
+                _appBarDockManager?.EnsureDocked();
+            };
+            _dockWatchTimer.Start();
+        }
+
+        private void ResizeWidgetWindow(int width, int height)
+        {
+            _appWindow?.Resize(new SizeInt32(width, height));
+            if (!_isClosing)
+            {
+                _appBarDockManager?.UpdatePosition(height, _fillDockHeight);
+            }
         }
 
     }

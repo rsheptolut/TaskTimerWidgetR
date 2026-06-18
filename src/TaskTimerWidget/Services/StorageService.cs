@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using TaskTimerWidget.Models;
 using Serilog;
 
@@ -27,7 +28,7 @@ namespace TaskTimerWidget.Services
             EnsureStorageDirectoryExists();
         }
 
-        public System.Threading.Tasks.Task<IEnumerable<TaskItem>> LoadTasksAsync()
+        public System.Threading.Tasks.Task<TaskStoreData> LoadStoreAsync()
         {
             try
             {
@@ -35,64 +36,134 @@ namespace TaskTimerWidget.Services
                 {
                     if (!File.Exists(_tasksFilePath))
                     {
-                        Log.Information("No existing tasks file found, returning empty collection");
-                        return Task.FromResult(Enumerable.Empty<TaskItem>());
+                        Log.Information("No existing tasks file found, returning empty store");
+                        return Task.FromResult(new TaskStoreData());
                     }
 
                     var json = File.ReadAllText(_tasksFilePath);
                     if (string.IsNullOrWhiteSpace(json))
                     {
-                        return Task.FromResult(Enumerable.Empty<TaskItem>());
+                        return Task.FromResult(new TaskStoreData());
                     }
 
-                    var tasks = JsonConvert.DeserializeObject<List<TaskItem>>(json) ?? new List<TaskItem>();
-                    Log.Information($"Loaded {tasks.Count} tasks from {_tasksFilePath}");
-                    return Task.FromResult(tasks.AsEnumerable());
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error loading tasks from storage");
-                return Task.FromResult(Enumerable.Empty<TaskItem>());
-            }
-        }
+                    var token = JToken.Parse(json);
 
-        public System.Threading.Tasks.Task SaveTasksAsync(IEnumerable<TaskItem> tasks)
-        {
-            try
-            {
-                lock (_lockObject)
-                {
-                    var json = JsonConvert.SerializeObject(tasks.ToList(), Formatting.Indented);
-                    File.WriteAllText(_tasksFilePath, json);
-                    Log.Debug($"Saved {tasks.Count()} tasks to {_tasksFilePath}");
-                }
-                return Task.CompletedTask;
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error saving tasks to storage");
-                throw;
-            }
-        }
-
-        public System.Threading.Tasks.Task ClearAsync()
-        {
-            try
-            {
-                lock (_lockObject)
-                {
-                    if (File.Exists(_tasksFilePath))
+                    // Schema v1 (legacy): a plain array of TaskItem. Treat as today's tasks.
+                    if (token.Type == JTokenType.Array)
                     {
-                        File.Delete(_tasksFilePath);
-                        Log.Information("Tasks storage cleared");
+                        var legacyTasks = token.ToObject<List<TaskItem>>() ?? new List<TaskItem>();
+                        var todayKey = Helpers.WorkdayClock.GetDayKey(DateTime.Now);
+                        var embedded = new Dictionary<string, List<TaskItem>> { [todayKey] = legacyTasks };
+                        var migrated = Normalize(embedded);
+                        Log.Information("Migrated legacy v1 list ({TaskCount} tasks) into normalized store on {DayKey}", legacyTasks.Count, todayKey);
+                        return Task.FromResult(migrated);
                     }
+
+                    // Schema v3 (current normalized): has a top-level "tasks" map.
+                    if (token.Type == JTokenType.Object && token["tasks"] != null)
+                    {
+                        var storeData = token.ToObject<TaskStoreData>() ?? new TaskStoreData();
+                        storeData.Tasks ??= new Dictionary<string, TaskDefinition>();
+                        storeData.Days ??= new Dictionary<string, List<DayTaskEntry>>();
+                        Log.Information("Loaded normalized store: {TaskCount} tasks across {DayCount} days from {Path}", storeData.Tasks.Count, storeData.Days.Count, _tasksFilePath);
+                        return Task.FromResult(storeData);
+                    }
+
+                    // Schema v2 (denormalized): days holding full TaskItem snapshots. Normalize.
+                    var daysToken = token["days"];
+                    var embeddedDays = daysToken?.ToObject<Dictionary<string, List<TaskItem>>>()
+                                       ?? new Dictionary<string, List<TaskItem>>();
+                    var normalized = Normalize(embeddedDays);
+                    Log.Information("Migrated v2 store ({DayCount} days) into normalized schema with {TaskCount} task identities", embeddedDays.Count, normalized.Tasks.Count);
+                    return Task.FromResult(normalized);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error loading store from storage");
+                return Task.FromResult(new TaskStoreData());
+            }
+        }
+
+        /// <summary>
+        /// Converts a denormalized day->TaskItem-list map into the normalized store, extracting
+        /// distinct task identities (by id) into the top-level tasks collection and replacing each
+        /// day's tasks with lightweight entries that reference them by id. All days are preserved.
+        /// </summary>
+        private static TaskStoreData Normalize(Dictionary<string, List<TaskItem>> embeddedDays)
+        {
+            var store = new TaskStoreData { SchemaVersion = 3 };
+
+            foreach (var (dayKey, tasks) in embeddedDays)
+            {
+                var entries = new List<DayTaskEntry>();
+                foreach (var task in tasks ?? new List<TaskItem>())
+                {
+                    var id = task.Id == Guid.Empty ? Guid.NewGuid() : task.Id;
+                    var key = id.ToString();
+
+                    if (!store.Tasks.TryGetValue(key, out var def))
+                    {
+                        def = new TaskDefinition
+                        {
+                            Id = id,
+                            Name = task.Name,
+                            CreatedAt = task.CreatedAt == default ? DateTime.UtcNow : task.CreatedAt,
+                            ModifiedAt = task.ModifiedAt == default ? DateTime.UtcNow : task.ModifiedAt
+                        };
+                        store.Tasks[key] = def;
+                    }
+                    else
+                    {
+                        // Keep earliest creation and the most recently modified name.
+                        if (task.CreatedAt != default && task.CreatedAt < def.CreatedAt)
+                        {
+                            def.CreatedAt = task.CreatedAt;
+                        }
+                        if (task.ModifiedAt >= def.ModifiedAt && !string.IsNullOrWhiteSpace(task.Name))
+                        {
+                            def.Name = task.Name;
+                            def.ModifiedAt = task.ModifiedAt;
+                        }
+                    }
+
+                    entries.Add(new DayTaskEntry
+                    {
+                        TaskId = id,
+                        ElapsedSeconds = task.ElapsedSeconds,
+                        IsRunning = task.IsRunning,
+                        IsDone = task.IsDone,
+                        Order = task.Order,
+                        ModifiedAt = task.ModifiedAt == default ? DateTime.UtcNow : task.ModifiedAt
+                    });
+                }
+
+                store.Days[dayKey] = entries;
+            }
+
+            return store;
+        }
+
+        public System.Threading.Tasks.Task SaveStoreAsync(TaskStoreData storeData)
+        {
+            if (storeData == null)
+            {
+                throw new ArgumentNullException(nameof(storeData));
+            }
+
+            try
+            {
+                lock (_lockObject)
+                {
+                    var json = JsonConvert.SerializeObject(storeData, Formatting.Indented);
+                    File.WriteAllText(_tasksFilePath, json);
+                    Log.Debug("Saved day store with {DayCount} days to {Path}", storeData.Days.Count, _tasksFilePath);
                 }
                 return Task.CompletedTask;
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error clearing tasks storage");
+                Log.Error(ex, "Error saving day store to storage");
                 throw;
             }
         }
