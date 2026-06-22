@@ -16,16 +16,45 @@ namespace TaskTimerWidget.Services
 
         public StorageService()
         {
-            // Initialize storage directory
-            _storageDirectory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "TaskTimerWidget",
-                "Data");
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
+            // Initialize storage directory (fork uses its own folder to avoid clashing with
+            // the original Task Timer Widget's data).
+            _storageDirectory = Path.Combine(localAppData, "TaskTimerWidgetR", "Data");
             _tasksFilePath = Path.Combine(_storageDirectory, "tasks.json");
 
             // Ensure directory exists
             EnsureStorageDirectoryExists();
+
+            // One-time import of existing data from the original app's folder, so users who
+            // started on the upstream app keep their history on first run of the fork.
+            MigrateLegacyDataIfNeeded(localAppData);
+        }
+
+        /// <summary>
+        /// Copies the original app's tasks.json into the fork's data folder on first run,
+        /// only when the fork has no data yet. The original file is left untouched.
+        /// </summary>
+        private void MigrateLegacyDataIfNeeded(string localAppData)
+        {
+            try
+            {
+                if (File.Exists(_tasksFilePath))
+                {
+                    return;
+                }
+
+                var legacyPath = Path.Combine(localAppData, "TaskTimerWidget", "Data", "tasks.json");
+                if (File.Exists(legacyPath))
+                {
+                    File.Copy(legacyPath, _tasksFilePath, overwrite: false);
+                    Log.Information("Imported existing data from original app: {LegacyPath}", legacyPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Could not import legacy data from original app folder");
+            }
         }
 
         public System.Threading.Tasks.Task<TaskStoreData> LoadStoreAsync()

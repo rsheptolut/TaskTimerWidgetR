@@ -6,14 +6,17 @@
         <TargetPlatformVersion>10.0.19041.0</TargetPlatformVersion>
         <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
         <RootNamespace>TaskTimerWidget</RootNamespace>
-        <AssemblyName>TaskTimerWidget</AssemblyName>
+        <AssemblyName>TaskTimerWidgetR</AssemblyName>
 
         <!-- Project Info -->
-        <Title>Task Timer Widget</Title>
-        <Company>TaskTimerWidget</Company>
-        <Authors>Development Team</Authors>
-        <Product>Task Timer Widget</Product>
-        <Description>A lightweight, minimal task timer widget for Windows 11</Description>
+        <Title>Task Timer Widget R</Title>
+        <Company>TaskTimerWidgetR</Company>
+        <Authors>rsheptolut (fork); Melih Celenk (original)</Authors>
+        <Product>Task Timer Widget R</Product>
+        <Description>A lightweight, minimal task timer widget for Windows 11. Fork of Task Timer Widget with right-edge docking and day-based history.</Description>
+        <Copyright>Copyright (c) 2025 Melih Celenk; (c) 2026 TaskTimerWidgetR contributors. MIT License.</Copyright>
+        <RepositoryUrl>https://github.com/rsheptolut/TaskTimerWidgetR</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/rsheptolut/TaskTimerWidgetR</PackageProjectUrl>
         <Version>1.1.0</Version>
         <InformationalVersion>1.1.0</InformationalVersion>
 
@@ -21,32 +24,21 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UseWinUI>true</UseWinUI>
-        <WindowsAppSDKVersion>1.7.250310001</WindowsAppSDKVersion>
-        <EnableMsixTooling>true</EnableMsixTooling>
+        <WindowsAppSDKVersion>1.7.260224002</WindowsAppSDKVersion>
 
-        <!-- Single-Project MSIX Packaging -->
-        <WindowsPackageType>MSIX</WindowsPackageType>
-        <GenerateAppxPackageOnBuild>false</GenerateAppxPackageOnBuild>
-        <AppxPackageSigningEnabled>False</AppxPackageSigningEnabled>
-        <AppxBundle>Always</AppxBundle>
-        <AppxBundlePlatforms>x64</AppxBundlePlatforms>
+        <!-- Unpackaged (classic exe) configuration. This app ships as a plain
+             self-contained executable, not an MSIX/Store package. -->
+        <WindowsPackageType>None</WindowsPackageType>
         <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
 
         <!-- Application Icon for taskbar -->
         <ApplicationIcon>app.ico</ApplicationIcon>
         <Platforms>AnyCPU;x64</Platforms>
-        <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
-        <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
-        <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
-        <AppxSymbolPackageEnabled>True</AppxSymbolPackageEnabled>
-        <GenerateTestArtifacts>False</GenerateTestArtifacts>
-        <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
-        <GenerateTemporaryStoreCertificate>True</GenerateTemporaryStoreCertificate>
     </PropertyGroup>
 
     <ItemGroup>
         <!-- WinUI 3 Dependencies -->
-        <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250310001" />
+        <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
         <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22621.756" />
 
         <!-- Logging and Diagnostics -->
@@ -103,5 +95,25 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
     </ItemGroup>
+
+    <!--
+        Workaround: under the VS 18.x / .NET SDK 10 toolchain the WindowsAppSDK PRI
+        targets emit the project resources index as "$(TargetName).pri" and do not
+        copy it to the (unpackaged) output/publish folder. The WinUI runtime loads
+        compiled XAML (XBF) from "resources.pri", so without it the app throws
+        XamlParseException at startup. These targets materialize "resources.pri"
+        next to the app for both build and publish.
+    -->
+    <Target Name="_EnsureResourcesPriAfterBuild" AfterTargets="Build" Condition="Exists('$(OutDir)$(TargetName).pri')">
+        <Copy SourceFiles="$(OutDir)$(TargetName).pri"
+              DestinationFiles="$(OutDir)resources.pri"
+              SkipUnchangedFiles="true" />
+    </Target>
+
+    <Target Name="_EnsureResourcesPriAfterPublish" AfterTargets="Publish" Condition="Exists('$(OutDir)$(TargetName).pri')">
+        <Copy SourceFiles="$(OutDir)$(TargetName).pri"
+              DestinationFiles="$(PublishDir)resources.pri"
+              SkipUnchangedFiles="true" />
+    </Target>
 
 </Project>

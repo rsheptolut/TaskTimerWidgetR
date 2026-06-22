@@ -54,18 +54,30 @@ Or in Visual Studio:
 
 ## 🚀 Running the Application
 
+> **Note:** This is a WinUI 3 desktop app and requires Visual Studio's MSBuild for
+> command-line builds. The standalone `dotnet` CLI lacks the Appx/PRI packaging
+> tooling and will fail with a missing `Microsoft.Build.Packaging.Pri.Tasks.dll`
+> error. Use the `build.ps1` helper from the repository root instead of `dotnet`.
+
 ### Option 1: Visual Studio
 1. Press **F5** to start debugging
 2. Application will launch in debug mode
 
-### Option 2: Command Line
-```bash
-dotnet run --project src/TaskTimerWidget/TaskTimerWidget.csproj
+### Option 2: Command Line (build helper)
+```powershell
+# Build (Release by default)
+.\build.ps1
+
+# Self-contained, unpackaged publish to .\local-publish
+.\build.ps1 -Publish
+
+# Then run the produced executable
+.\local-publish\TaskTimerWidgetR.exe
 ```
 
-### Option 3: Release Build
-```bash
-dotnet build -c Release src/TaskTimerWidget/TaskTimerWidget.csproj
+### Option 3: Debug build
+```powershell
+.\build.ps1 -Configuration Debug
 ```
 
 ## 📁 Project Structure Explanation
@@ -326,7 +338,7 @@ powershell -NoProfile -Command "Get-Process TaskTimerWidget -ErrorAction Ignore 
 
 # Launch app directly
 cd "C:\Kodlar\Desktop\TaskTimerWidget\src\TaskTimerWidget\bin\Debug\net8.0-windows10.0.19041.0"
-start TaskTimerWidget.exe
+start TaskTimerWidgetR.exe
 ```
 
 ### Quick Build + Test Cycle

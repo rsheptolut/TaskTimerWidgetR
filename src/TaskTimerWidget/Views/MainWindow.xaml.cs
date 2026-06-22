@@ -337,6 +337,7 @@ namespace TaskTimerWidget
                     UpdateEmptyState();
                     UpdateStatusBar();
                     UpdateDayNavigationUi();
+                    UpdateTotalTime();
                     UpdateTaskItemColors();
 
                     // Subscribe to property changes
@@ -347,6 +348,11 @@ namespace TaskTimerWidget
                         {
                             UpdateEmptyState();
                             UpdateStatusBar();
+                        }
+
+                        if (args.PropertyName == nameof(_viewModel.TotalDayTimeDisplay))
+                        {
+                            UpdateTotalTime();
                         }
 
                         if (args.PropertyName == nameof(_viewModel.SelectedDayDisplay) ||
@@ -363,6 +369,7 @@ namespace TaskTimerWidget
                     {
                         UpdateEmptyState();
                         UpdateStatusBar();
+                        UpdateTotalTime();
                         UpdateTaskItemColors();
                     };
                 }
@@ -428,17 +435,16 @@ namespace TaskTimerWidget
             // App name
             panel.Children.Add(new TextBlock
             {
-                Text = "Task Timer Widget",
+                Text = "Task Timer Widget R",
                 FontSize = 14,
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(new Color { A = 255, R = 0x33, G = 0x33, B = 0x33 })
             });
 
-            // Version & date
-            var version = Windows.ApplicationModel.Package.Current.Id.Version;
-            var versionStr = $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}";
+            // Version & date. Read from the assembly so it works in unpackaged builds too
+            // (Package.Current throws/hangs when the app isn't running in an MSIX package).
+            var versionStr = GetAppVersionString();
             panel.Children.Add(CreateAboutLine($"Version {versionStr}"));
-            panel.Children.Add(CreateAboutLine("2025"));
 
             // Separator
             panel.Children.Add(new Border
@@ -448,19 +454,45 @@ namespace TaskTimerWidget
                 Margin = new Thickness(0, 2, 0, 2)
             });
 
-            // Developer
-            panel.Children.Add(CreateAboutLine("Melih \u00C7elenk"));
+            // Fork repository
+            panel.Children.Add(CreateAboutLink("\uD83C\uDF10 Project on GitHub", "https://github.com/rsheptolut/TaskTimerWidgetR"));
 
-            // Email link
-            panel.Children.Add(CreateAboutLink("\u2709 info@melihcelenk.com", "mailto:info@melihcelenk.com"));
-
-            // Website & Rate links
-            panel.Children.Add(CreateAboutLink("\uD83C\uDF10 Website", "https://melihcelenk.github.io/TaskTimerWidget/"));
-            panel.Children.Add(CreateAboutLink("\u2B50 Rate", "https://apps.microsoft.com/detail/9NF0N9LN349G?hl=tr-tr&gl=TR&ocid=pdpshare"));
+            // Credit to the original author (this app is a fork)
+            panel.Children.Add(CreateAboutLine("Fork of Task Timer Widget"));
+            panel.Children.Add(CreateAboutLink("Original by Melih \u00C7elenk", "https://github.com/melihcelenk/TaskTimerWidget"));
 
             flyout.Content = panel;
             flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Top;
             flyout.ShowAt(AddTaskButton);
+        }
+
+        /// <summary>
+        /// Returns the app version string, preferring the packaged identity but falling back to
+        /// the assembly's informational/file version for unpackaged (self-contained) builds.
+        /// </summary>
+        private static string GetAppVersionString()
+        {
+            try
+            {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var informational = System.Reflection.CustomAttributeExtensions
+                    .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(assembly)?
+                    .InformationalVersion;
+                if (!string.IsNullOrWhiteSpace(informational))
+                {
+                    // Strip any build metadata suffix (e.g. "1.1.0+abc123").
+                    var plus = informational.IndexOf('+');
+                    return plus >= 0 ? informational.Substring(0, plus) : informational;
+                }
+
+                var version = assembly.GetName().Version;
+                return version?.ToString() ?? "1.0.0";
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Could not determine app version");
+                return "1.0.0";
+            }
         }
 
         /// <summary>
@@ -974,6 +1006,19 @@ namespace TaskTimerWidget
             }
         }
 
+        private void UpdateTotalTime()
+        {
+            if (TotalTimeTextBlock == null || _viewModel == null)
+            {
+                return;
+            }
+
+            var total = _viewModel.TotalDayTimeDisplay;
+            TotalTimeTextBlock.Text = string.IsNullOrEmpty(total)
+                ? string.Empty
+                : $"Total: {total}";
+        }
+
         private static string FormatDuration(long totalSeconds)
         {
             var timeSpan = TimeSpan.FromSeconds(Math.Max(0, totalSeconds));
@@ -1110,23 +1155,19 @@ namespace TaskTimerWidget
 
                 if (futureCount > 0)
                 {
-                    var continuityDialog = new ContentDialog
-                    {
-                        Title = "Continuity check",
-                        Content = $"There's {futureCount} more day(s) in the future where this task is used but not marked done.",
-                        PrimaryButtonText = "Mark them all done",
-                        SecondaryButtonText = "Leave them as is",
-                        CloseButtonText = "Cancel",
-                        XamlRoot = this.Content.XamlRoot
-                    };
+                    var continuityResult = await Views.ConfirmationWindow.ShowAsync(
+                        "Continuity check",
+                        $"There's {futureCount} more day(s) in the future where this task is used but not marked done.",
+                        "Mark them all done",
+                        "Leave them as is",
+                        "Cancel");
 
-                    var continuityResult = await continuityDialog.ShowAsync();
-                    if (continuityResult == ContentDialogResult.None)
+                    if (continuityResult == Views.ConfirmationResult.None)
                     {
                         return;
                     }
 
-                    markFutureToo = continuityResult == ContentDialogResult.Primary;
+                    markFutureToo = continuityResult == Views.ConfirmationResult.Primary;
                 }
 
                 await _viewModel.MarkTaskDoneAsync(taskVm, markFutureToo);
@@ -1192,22 +1233,18 @@ namespace TaskTimerWidget
                 var needsWarning = stats.TotalElapsedSeconds > 60;
                 var warningPrefix = needsWarning ? $"Are you sure? There's {totalDays} day(s) using this task.\n\n" : string.Empty;
 
-                var deleteDialog = new ContentDialog
-                {
-                    Title = "Delete task",
-                    Content = warningPrefix + "Choose delete scope.",
-                    PrimaryButtonText = "Delete this whole task forever",
-                    SecondaryButtonText = "Delete just for this day",
-                    CloseButtonText = "Cancel",
-                    XamlRoot = this.Content.XamlRoot
-                };
+                var result = await Views.ConfirmationWindow.ShowAsync(
+                    "Delete task",
+                    warningPrefix + "Choose delete scope.",
+                    "Delete this whole task forever",
+                    "Delete just for this day",
+                    "Cancel");
 
-                var result = await deleteDialog.ShowAsync();
-                if (result == ContentDialogResult.Primary)
+                if (result == Views.ConfirmationResult.Primary)
                 {
                     await _viewModel.DeleteTaskForeverAsync(taskVm);
                 }
-                else if (result == ContentDialogResult.Secondary)
+                else if (result == Views.ConfirmationResult.Secondary)
                 {
                     await _viewModel.DeleteTaskForCurrentDayAsync(taskVm);
                 }

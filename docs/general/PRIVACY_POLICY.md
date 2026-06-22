@@ -20,7 +20,7 @@ The App stores the following information **locally on your device only**:
 
 All data is stored in a local JSON file at:
 ```
-%LOCALAPPDATA%\TaskTimerWidget\Data\tasks.json
+%LOCALAPPDATA%\TaskTimerWidgetR\Data\tasks.json
 ```
 
 This data **never leaves your device** and is **not transmitted to any servers**.
@@ -52,7 +52,7 @@ We may update this Privacy Policy from time to time. Any changes will be posted 
 ## Contact
 
 If you have any questions about this Privacy Policy, please create an issue on our GitHub repository:
-https://github.com/melihcelenk/TaskTimerWidget
+https://github.com/rsheptolut/TaskTimerWidgetR
 
 ## Consent
 
@@ -82,7 +82,7 @@ Uygulama aşağıdaki bilgileri **yalnızca cihazınızda yerel olarak** saklar:
 
 Tüm veriler yerel bir JSON dosyasında saklanır:
 ```
-%LOCALAPPDATA%\TaskTimerWidget\Data\tasks.json
+%LOCALAPPDATA%\TaskTimerWidgetR\Data\tasks.json
 ```
 
 Bu veriler **asla cihazınızdan ayrılmaz** ve **hiçbir sunucuya iletilmez**.
@@ -114,7 +114,7 @@ Bu Gizlilik Politikasını zaman zaman güncelleyebiliriz. Değişiklikler bu sa
 ## İletişim
 
 Bu Gizlilik Politikası hakkında sorularınız varsa, lütfen GitHub depomuzda bir issue oluşturun:
-https://github.com/melihcelenk/TaskTimerWidget
+https://github.com/rsheptolut/TaskTimerWidgetR
 
 ## Onay
 

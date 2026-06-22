@@ -36,7 +36,7 @@ namespace TaskTimerWidget
                     .WriteTo.File(
                         Path.Combine(
                             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                            "TaskTimerWidget",
+                            "TaskTimerWidgetR",
                             "Logs",
                             "app-.txt"),
                         rollingInterval: RollingInterval.Day,

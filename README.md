@@ -1,7 +1,7 @@
-# Task Timer Widget
+# Task Timer Widget R
 
 <p align="center">
-  <img src="assets/icons/app-icon-256.png" alt="TaskTimerWidget Logo" width="128" height="128">
+  <img src="assets/icons/app-icon-256.png" alt="Task Timer Widget R Logo" width="128" height="128">
 </p>
 
 <p align="center">
@@ -17,17 +17,15 @@
 </p>
 
 <p align="center">
-  <a href="https://apps.microsoft.com/detail/9NF0N9LN349G">
-    <img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" width="200"/>
-  </a>
+  <em>A fork of <a href="https://github.com/melihcelenk/TaskTimerWidget">Task Timer Widget</a> by Melih Çelenk, with right-edge AppBar docking and day-based history. Ships as a plain unpackaged Windows executable.</em>
 </p>
 
 <p align="center">
   <a href="#-getting-started">Download</a> •
   <a href="#-features">Features</a> •
   <a href="docs/general/DEVELOPMENT.md">Documentation</a> •
-  <a href="https://melihcelenk.github.io/TaskTimerWidget/PRIVACY_POLICY.html">Privacy Policy</a> •
-  <a href="https://melihcelenk.github.io/TaskTimerWidget/">Website</a>
+  <a href="https://rsheptolut.github.io/TaskTimerWidgetR/PRIVACY_POLICY.html">Privacy Policy</a> •
+  <a href="https://github.com/rsheptolut/TaskTimerWidgetR">Repository</a>
 </p>
 
 ---
@@ -74,9 +72,10 @@
 ### Installation
 
 1. Clone or download the project
-2. Open `src/TaskTimerWidget/TaskTimerWidget.csproj` in Visual Studio 2022
-3. Build the project (Build > Build Solution)
-4. Run the application (F5 or Debug > Start Debugging)
+2. From the repository root, run `.\build.ps1 -Publish` (requires Visual Studio with the .NET desktop / WinUI workload)
+3. Launch `.\local-publish\TaskTimerWidgetR.exe`
+
+Alternatively, open `src/TaskTimerWidget/TaskTimerWidget.csproj` in Visual Studio and run with F5.
 
 ### Usage
 
@@ -110,11 +109,7 @@ TaskTimerWidget/
 ├── docs/
 │   ├── general/                 # General documentation
 │   │   ├── DEVELOPMENT.md       # Development guide
-│   │   ├── MARKET_RESEARCH.md   # Market analysis
-│   │   ├── PRIVACY_POLICY.md    # Privacy policy
-│   │   └── STORE_LISTING.md     # Store submission info
-│   ├── tasks/TTW-1/             # Task-specific documentation
-│   │   └── TODO.md              # Development roadmap
+│   │   └── PRIVACY_POLICY.md    # Privacy policy
 │   └── WINUI3_WINDOW_DRAGGING.md # WinUI 3 guide
 ├── legacy/                      # Old prototypes
 ├── CLAUDE.md                    # Code standards and guidelines
@@ -143,15 +138,26 @@ This project follows the **MVVM (Model-View-ViewModel)** pattern:
 
 ### Building
 
-```bash
-dotnet build src/TaskTimerWidget/TaskTimerWidget.csproj
+This is a WinUI 3 desktop app, which requires Visual Studio's MSBuild (the bare
+`dotnet` CLI lacks the Appx/PRI packaging tooling). Use the provided helper:
+
+```powershell
+# Release build
+.\build.ps1
+
+# Self-contained, unpackaged publish to .\local-publish
+.\build.ps1 -Publish
 ```
 
 ### Running
 
-```bash
-dotnet run --project src/TaskTimerWidget/TaskTimerWidget.csproj
+Run the published executable directly:
+
+```powershell
+.\local-publish\TaskTimerWidgetR.exe
 ```
+
+Or launch from Visual Studio with F5 (the "TaskTimerWidget (Unpackaged)" profile).
 
 ### Code Standards
 
@@ -170,18 +176,6 @@ See [docs/general/DEVELOPMENT.md](./docs/general/DEVELOPMENT.md) for detailed de
 - Development workflow
 - **[WinUI 3 Custom Window Dragging Guide](./docs/WINUI3_WINDOW_DRAGGING.md)** - Applicable to all C# WinUI 3 projects
 
-### Development Roadmap
-
-See [docs/tasks/TTW-1/TODO.md](./docs/tasks/TTW-1/TODO.md) for the complete development roadmap with phases and milestones.
-
-## 📊 Market Analysis
-
-See [docs/general/MARKET_RESEARCH.md](./docs/general/MARKET_RESEARCH.md) for:
-- Market analysis and competition
-- Growth strategies
-- Monetization plan
-- Timeline and projections
-
 ## 🎯 Roadmap
 
 ### v1.0 ✅
@@ -193,8 +187,14 @@ See [docs/general/MARKET_RESEARCH.md](./docs/general/MARKET_RESEARCH.md) for:
 - [x] Custom fonts and styling
 - [x] Time percentage display
 - [x] Drag-and-drop reordering
-- [x] Windows Store submission
-- [x] MSIX packaging
+
+### Fork (Task Timer Widget R) ✅
+- [x] Right-edge AppBar docking (reserves a workspace strip)
+- [x] Day-based task history with 4:00 AM day boundary
+- [x] Stable task IDs, done-state workflow, kebab/context menu
+- [x] Daily total time row
+- [x] Converted to a plain unpackaged executable (no Microsoft Store / MSIX)
+- [x] Local state stored under `%LOCALAPPDATA%\TaskTimerWidgetR`
 
 ### v1.1 (Current) ✅
 - [x] Manual time adjustment (Change Time)
@@ -220,6 +220,7 @@ See [docs/general/MARKET_RESEARCH.md](./docs/general/MARKET_RESEARCH.md) for:
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+The original work is Copyright (c) 2025 Melih Çelenk; fork changes are Copyright (c) 2026 Task Timer Widget R contributors.
 
 **Why MIT?** This license allows you to:
 - ✅ Use this software for any purpose (personal, commercial, educational)
@@ -245,6 +246,7 @@ For issues, questions, or suggestions, please:
 
 ## 🙏 Acknowledgments
 
+- **Original author**: This project is a fork of [Task Timer Widget](https://github.com/melihcelenk/TaskTimerWidget) by [Melih Çelenk](https://github.com/melihcelenk). Huge thanks for the original app and for releasing it under MIT.
 - Built with WinUI 3 and .NET 8.0
 - Inspired by Toggl and other time-tracking tools
 - Designed for productivity enthusiasts
@@ -252,6 +254,6 @@ For issues, questions, or suggestions, please:
 ---
 
 **Version**: 1.1.0
-**Last Updated**: February 13, 2026
-**Status**: Public Release
+**Last Updated**: June 22, 2026
+**Status**: Public Release (fork)
 **License**: MIT

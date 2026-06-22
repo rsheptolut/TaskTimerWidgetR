@@ -26,6 +26,7 @@ namespace TaskTimerWidget.ViewModels
         private string _selectedDayDisplay = string.Empty;
         private bool _canNavigatePrevious;
         private bool _canNavigateNext;
+        private string _totalDayTimeDisplay = string.Empty;
 
         private ICommand? _addTaskCommand;
         private ICommand? _selectTaskCommand;
@@ -84,6 +85,12 @@ namespace TaskTimerWidget.ViewModels
         {
             get => _canNavigateNext;
             private set => SetProperty(ref _canNavigateNext, value);
+        }
+
+        public string TotalDayTimeDisplay
+        {
+            get => _totalDayTimeDisplay;
+            private set => SetProperty(ref _totalDayTimeDisplay, value);
         }
 
         public ICommand AddTaskCommand =>
@@ -501,6 +508,25 @@ namespace TaskTimerWidget.ViewModels
             {
                 task.SetTotalElapsedSeconds(totalElapsedSeconds);
             }
+
+            TotalDayTimeDisplay = FormatTotalDuration(totalElapsedSeconds);
+        }
+
+        /// <summary>
+        /// Formats a duration in the compact "Nh Nm" form used for the daily total
+        /// (e.g. "6h 12m", "12m", "0m").
+        /// </summary>
+        private static string FormatTotalDuration(long totalSeconds)
+        {
+            var timeSpan = TimeSpan.FromSeconds(Math.Max(0, totalSeconds));
+            var hours = (int)timeSpan.TotalHours;
+            var minutes = timeSpan.Minutes;
+
+            if (hours > 0)
+            {
+                return $"{hours}h {minutes}m";
+            }
+            return $"{minutes}m";
         }
 
         public void Dispose()

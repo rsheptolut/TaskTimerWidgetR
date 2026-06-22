@@ -308,6 +308,14 @@
 
         <!-- Bottom Controls -->
         <StackPanel Grid.Row="2" Spacing="8" Padding="12,12,12,12">
+            <!-- Total time for the day -->
+            <TextBlock
+                x:Name="TotalTimeTextBlock"
+                FontSize="12"
+                FontWeight="SemiBold"
+                Foreground="#444444"
+                TextAlignment="Center" />
+
             <!-- Day Navigation Row -->
             <Grid>
                 <Grid.ColumnDefinitions>
