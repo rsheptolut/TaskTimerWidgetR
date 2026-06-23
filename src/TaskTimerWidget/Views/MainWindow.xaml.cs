@@ -425,73 +425,39 @@ namespace TaskTimerWidget
         /// <summary>
         /// Handles the About button click to show app info flyout.
         /// </summary>
-        private void AboutButton_Click(object sender, RoutedEventArgs e)
+        private async void CleanupButton_Click(object sender, RoutedEventArgs e)
         {
-            var flyout = new Flyout();
-            flyout.FlyoutPresenterStyle = CreateFlyoutStyle();
-
-            var panel = new StackPanel { Spacing = 6, MaxWidth = 160 };
-
-            // App name
-            panel.Children.Add(new TextBlock
+            if (_viewModel == null)
             {
-                Text = "Task Timer Widget R",
-                FontSize = 14,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(new Color { A = 255, R = 0x33, G = 0x33, B = 0x33 })
-            });
-
-            // Version & date. Read from the assembly so it works in unpackaged builds too
-            // (Package.Current throws/hangs when the app isn't running in an MSIX package).
-            var versionStr = GetAppVersionString();
-            panel.Children.Add(CreateAboutLine($"Version {versionStr}"));
-
-            // Separator
-            panel.Children.Add(new Border
-            {
-                Height = 1,
-                Background = new SolidColorBrush(new Color { A = 255, R = 0x99, G = 0x99, B = 0x99 }),
-                Margin = new Thickness(0, 2, 0, 2)
-            });
-
-            // Fork repository
-            panel.Children.Add(CreateAboutLink("\uD83C\uDF10 Project on GitHub", "https://github.com/rsheptolut/TaskTimerWidgetR"));
-
-            // Credit to the original author (this app is a fork)
-            panel.Children.Add(CreateAboutLine("Fork of Task Timer Widget"));
-            panel.Children.Add(CreateAboutLink("Original by Melih \u00C7elenk", "https://github.com/melihcelenk/TaskTimerWidget"));
-
-            flyout.Content = panel;
-            flyout.Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Top;
-            flyout.ShowAt(AddTaskButton);
-        }
-
-        /// <summary>
-        /// Returns the app version string, preferring the packaged identity but falling back to
-        /// the assembly's informational/file version for unpackaged (self-contained) builds.
-        /// </summary>
-        private static string GetAppVersionString()
-        {
-            try
-            {
-                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                var informational = System.Reflection.CustomAttributeExtensions
-                    .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(assembly)?
-                    .InformationalVersion;
-                if (!string.IsNullOrWhiteSpace(informational))
-                {
-                    // Strip any build metadata suffix (e.g. "1.1.0+abc123").
-                    var plus = informational.IndexOf('+');
-                    return plus >= 0 ? informational.Substring(0, plus) : informational;
-                }
-
-                var version = assembly.GetName().Version;
-                return version?.ToString() ?? "1.0.0";
+                return;
             }
-            catch (Exception ex)
+
+            const long maxSeconds = 5;
+            var staleCount = _viewModel.Tasks.Count(task => task.ElapsedSeconds <= maxSeconds);
+            if (staleCount == 0)
             {
-                Log.Warning(ex, "Could not determine app version");
-                return "1.0.0";
+                await Views.ConfirmationWindow.ShowAsync(
+                    "Clean up tasks",
+                    "Nothing to clean up — every task on this day has more than 5 seconds of work logged.",
+                    primaryText: null,
+                    secondaryText: null,
+                    closeText: "OK");
+                return;
+            }
+
+            var taskWord = staleCount == 1 ? "task" : "tasks";
+            var result = await Views.ConfirmationWindow.ShowAsync(
+                "Clean up tasks",
+                $"Delete {staleCount} {taskWord} with 5 seconds or less of work from this day?\n\nThis only affects the selected day.",
+                $"Delete {staleCount} {taskWord}",
+                secondaryText: null,
+                closeText: "Cancel");
+
+            if (result == Views.ConfirmationResult.Primary)
+            {
+                await _viewModel.CleanupDayAsync(maxSeconds);
+                UpdateTaskItemColors();
+                UpdateStatusBar();
             }
         }
 
@@ -508,34 +474,6 @@ namespace TaskTimerWidget
             style.Setters.Add(new Setter(FlyoutPresenter.PaddingProperty, new Thickness(14)));
             style.Setters.Add(new Setter(FlyoutPresenter.MinWidthProperty, 0.0));
             return style;
-        }
-
-        /// <summary>
-        /// Creates a styled TextBlock for the About flyout.
-        /// </summary>
-        private TextBlock CreateAboutLine(string text)
-        {
-            return new TextBlock
-            {
-                Text = text,
-                FontSize = 11,
-                Foreground = new SolidColorBrush(new Color { A = 255, R = 0x55, G = 0x55, B = 0x55 })
-            };
-        }
-
-        /// <summary>
-        /// Creates a styled HyperlinkButton for the About flyout.
-        /// </summary>
-        private HyperlinkButton CreateAboutLink(string label, string uri)
-        {
-            return new HyperlinkButton
-            {
-                Content = label,
-                NavigateUri = new System.Uri(uri),
-                FontSize = 11,
-                Foreground = new SolidColorBrush(new Color { A = 255, R = 0x1A, G = 0x5A, B = 0xB8 }),
-                Padding = new Thickness(0)
-            };
         }
 
         /// <summary>

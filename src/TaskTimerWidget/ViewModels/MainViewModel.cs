@@ -265,6 +265,32 @@ namespace TaskTimerWidget.ViewModels
             await LoadDayAsync(SelectedDayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
         }
 
+        /// <summary>
+        /// Deletes, for the selected day only, every task that has no meaningful work logged
+        /// (at most <paramref name="maxSeconds"/> seconds). Returns the number of tasks removed.
+        /// </summary>
+        public async Task<int> CleanupDayAsync(long maxSeconds = 5)
+        {
+            var staleTasks = Tasks.Where(task => task.ElapsedSeconds <= maxSeconds).ToList();
+            if (staleTasks.Count == 0)
+            {
+                return 0;
+            }
+
+            foreach (var taskVm in staleTasks)
+            {
+                if (ActiveTask?.Id == taskVm.Id)
+                {
+                    ActiveTask = null;
+                }
+
+                await _taskService.DeleteTaskForDayAsync(SelectedDayKey, taskVm.Id);
+            }
+
+            await LoadDayAsync(SelectedDayKey, ensureDayExists: true, stopRunningBeforeLoad: false);
+            return staleTasks.Count;
+        }
+
         public async Task UpdateTaskOrdersAsync()
         {
             try

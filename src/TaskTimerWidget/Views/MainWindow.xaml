@@ -413,7 +413,7 @@
                     CornerRadius="4"
                     Click="AddTaskButton_Click" />
 
-                <!-- About Button (Right side, slightly right of center) -->
+                <!-- Cleanup Button (Right side, slightly right of center) -->
                 <Border
                     Grid.Column="2"
                     Width="32"
@@ -423,7 +423,7 @@
                     VerticalAlignment="Center"
                     Margin="0,0,8,0">
                     <Button
-                        x:Name="AboutButton"
+                        x:Name="CleanupButton"
                         Width="32"
                         Height="32"
                         Padding="0"
@@ -431,12 +431,12 @@
                         Foreground="White"
                         BorderThickness="0"
                         CornerRadius="16"
-                        Click="AboutButton_Click">
+                        ToolTipService.ToolTip="Clean up empty tasks for this day"
+                        Click="CleanupButton_Click">
                         <TextBlock
-                            Text="i"
-                            FontSize="16"
-                            FontWeight="Bold"
-                            Foreground="White"
+                            Text="&#x1FA84;"
+                            FontFamily="Segoe UI Emoji"
+                            FontSize="15"
                             TextAlignment="Center" />
                     </Button>
                 </Border>

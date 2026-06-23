@@ -34,7 +34,7 @@ namespace TaskTimerWidget.Views
         private ConfirmationWindow(
             string title,
             string message,
-            string primaryText,
+            string? primaryText,
             string? secondaryText,
             string closeText)
         {
@@ -84,13 +84,16 @@ namespace TaskTimerWidget.Views
                 Spacing = 8
             };
 
-            var primaryButton = new Button
+            if (!string.IsNullOrEmpty(primaryText))
             {
-                Content = primaryText,
-                MinWidth = 88
-            };
-            primaryButton.Click += (_, _) => Complete(ConfirmationResult.Primary);
-            buttonPanel.Children.Add(primaryButton);
+                var primaryButton = new Button
+                {
+                    Content = primaryText,
+                    MinWidth = 88
+                };
+                primaryButton.Click += (_, _) => Complete(ConfirmationResult.Primary);
+                buttonPanel.Children.Add(primaryButton);
+            }
 
             if (!string.IsNullOrEmpty(secondaryText))
             {
@@ -137,7 +140,7 @@ namespace TaskTimerWidget.Views
         public static Task<ConfirmationResult> ShowAsync(
             string title,
             string message,
-            string primaryText,
+            string? primaryText,
             string? secondaryText,
             string closeText)
         {
