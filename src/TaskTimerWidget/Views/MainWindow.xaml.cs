@@ -1208,6 +1208,7 @@ namespace TaskTimerWidget
             if (_changeTimeTask != null && _changeTimeTaskIndex >= 0)
             {
                 _viewModel.Tasks.Insert(_changeTimeTaskIndex, _changeTimeTask);
+                _viewModel.DetachedTask = null;
                 HideChangeTimeCard();
             }
 
@@ -1222,6 +1223,9 @@ namespace TaskTimerWidget
 
             // Remove the task from the list
             _viewModel.Tasks.RemoveAt(index);
+
+            // Keep the task included in the daily total while its time is being edited
+            _viewModel.DetachedTask = taskVm;
 
             // Move change time card to that position
             MoveChangeTimeCardToPosition(index);
@@ -1367,6 +1371,7 @@ namespace TaskTimerWidget
                 _changeTimeTask.PropertyChanged -= OnChangeTimeTaskPropertyChanged;
 
                 _viewModel.Tasks.Insert(_changeTimeTaskIndex, _changeTimeTask);
+                _viewModel.DetachedTask = null;
 
                 // Restore active task color after UI updates
                 var wasActive = _changeTimeTask.IsActive;

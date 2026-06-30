@@ -27,6 +27,7 @@ namespace TaskTimerWidget.ViewModels
         private bool _canNavigatePrevious;
         private bool _canNavigateNext;
         private string _totalDayTimeDisplay = string.Empty;
+        private TaskViewModel? _detachedTask;
 
         private ICommand? _addTaskCommand;
         private ICommand? _selectTaskCommand;
@@ -91,6 +92,24 @@ namespace TaskTimerWidget.ViewModels
         {
             get => _totalDayTimeDisplay;
             private set => SetProperty(ref _totalDayTimeDisplay, value);
+        }
+
+        /// <summary>
+        /// A task that has been temporarily removed from <see cref="Tasks"/> while its
+        /// time is being edited (e.g. via the inline Change Time card). It is still
+        /// included in the daily total so the total reflects the task's current time.
+        /// </summary>
+        public TaskViewModel? DetachedTask
+        {
+            get => _detachedTask;
+            set
+            {
+                if (_detachedTask != value)
+                {
+                    _detachedTask = value;
+                    UpdateTaskPercentages();
+                }
+            }
         }
 
         public ICommand AddTaskCommand =>
@@ -355,6 +374,7 @@ namespace TaskTimerWidget.ViewModels
             ActiveTask = null;
             SelectedTask = null;
             SelectedDayKey = dayKey;
+            _detachedTask = null;
 
             UpdateTaskPercentages();
             await RefreshNavigationAsync();
@@ -530,10 +550,16 @@ namespace TaskTimerWidget.ViewModels
         private void UpdateTaskPercentages()
         {
             var totalElapsedSeconds = Tasks.Sum(task => task.ElapsedSeconds);
+            if (_detachedTask != null && !Tasks.Contains(_detachedTask))
+            {
+                totalElapsedSeconds += _detachedTask.ElapsedSeconds;
+            }
+
             foreach (var task in Tasks)
             {
                 task.SetTotalElapsedSeconds(totalElapsedSeconds);
             }
+            _detachedTask?.SetTotalElapsedSeconds(totalElapsedSeconds);
 
             TotalDayTimeDisplay = FormatTotalDuration(totalElapsedSeconds);
         }
