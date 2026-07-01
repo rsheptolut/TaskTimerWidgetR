@@ -172,18 +172,26 @@
                                                 VerticalAlignment="Center" />
                                         </StackPanel>
 
-                                        <Button
+                                        <Border
+                                            x:Name="TaskMenuHitZone"
                                             Grid.Column="1"
-                                            Content="⋮"
-                                            Width="28"
-                                            Height="28"
-                                            FontSize="14"
-                                            Padding="0"
-                                            Background="#3A3A3A"
-                                            Foreground="#D0D0D0"
-                                            CornerRadius="4"
-                                            Tag="{Binding}"
-                                            Click="TaskMenuButton_Click" />
+                                            Background="Transparent"
+                                            Padding="3"
+                                            Tapped="TaskMenuHitZone_Tapped"
+                                            Tag="{Binding}">
+                                            <Button
+                                                x:Name="TaskMenuButton"
+                                                Content="⋮"
+                                                Width="28"
+                                                Height="28"
+                                                FontSize="14"
+                                                Padding="0"
+                                                Background="#3A3A3A"
+                                                Foreground="#D0D0D0"
+                                                CornerRadius="4"
+                                                Tag="{Binding}"
+                                                Click="TaskMenuButton_Click" />
+                                        </Border>
                                     </Grid>
 
                                     <!-- Timer Display + Percentage (Bottom Row) -->

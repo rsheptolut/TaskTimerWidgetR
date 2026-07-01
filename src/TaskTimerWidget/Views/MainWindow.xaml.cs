@@ -694,6 +694,26 @@ namespace TaskTimerWidget
         }
 
         /// <summary>
+        /// Checks whether the source element is within a named element in a data template.
+        /// </summary>
+        private bool IsInsideNamedElement(object source, string elementName)
+        {
+            var element = source as DependencyObject;
+            while (element != null)
+            {
+                if (element is FrameworkElement frameworkElement &&
+                    string.Equals(frameworkElement.Name, elementName, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                element = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(element);
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Handles the Add Task button click event.
         /// </summary>
         private async void AddTaskButton_Click(object sender, RoutedEventArgs e)
@@ -753,6 +773,11 @@ namespace TaskTimerWidget
         {
             if (sender is Border border && border.Tag is TaskViewModel taskVm)
             {
+                if (IsInsideNamedElement(e.OriginalSource, "TaskMenuHitZone"))
+                {
+                    return;
+                }
+
                 if (_viewModel != null)
                 {
                     if (!_viewModel.IsTodaySelected || taskVm.IsDone)
@@ -1032,6 +1057,21 @@ namespace TaskTimerWidget
             if (sender is Button button && button.Tag is TaskViewModel taskVm)
             {
                 ShowTaskContextMenu(taskVm, button, new Windows.Foundation.Point(button.ActualWidth / 2, button.ActualHeight));
+            }
+        }
+
+        private void TaskMenuHitZone_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            if (sender is FrameworkElement hitZone && hitZone.Tag is TaskViewModel taskVm)
+            {
+                // Let the button click handler manage direct button clicks to avoid duplicate flyouts.
+                if (IsInsideNamedElement(e.OriginalSource, "TaskMenuButton"))
+                {
+                    return;
+                }
+
+                e.Handled = true;
+                ShowTaskContextMenu(taskVm, hitZone, e.GetPosition(hitZone));
             }
         }
 
